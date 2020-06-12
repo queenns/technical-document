@@ -35,3 +35,4 @@
 ## 目录
 * [安装](install.md)
 * [插件](plugins.md) 
+* [自动化流程](automatic.md)
