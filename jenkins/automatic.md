@@ -125,12 +125,10 @@ with open(sys.argv[1]) as f:
 ```sh
 #!/usr/bin/env bash
 set -e
-
 # 1.执行构建发布流程
 dir=$(pwd)
 build="sh /var/lib/jenkins/tools/jenkins/build.sh ${dir}/${gitlab_sub_module}"
 eval ${build}
-
 # 2.自动化创建Job
 cmd="/bin/python ${HOME}/tools/jenkins/jenkins-automatic.py \
 --git_url=${git_url} \
@@ -240,12 +238,8 @@ import sys
 import jenkins
 import StringUtil
 from yaml import load
-
 StringUtil.set_sys_utf8()
-
 args = None
-
-
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gitlab_url', )
@@ -254,13 +248,9 @@ def get_parser():
     parser.add_argument('--jenkins_user')
     parser.add_argument('--jenkins_auth')
     return parser
-
-
 def validate():
     if args.sub_module:
         args.sub_module = args.sub_module.lstrip("/")
-
-
 def make_folder(server, dirs):
     tmp = ''
     floder_config = server.get_job_config('xcardata/demo')
@@ -269,15 +259,11 @@ def make_folder(server, dirs):
         if not server.job_exists(tmp[:-1]):
             print '创建目录:' + tmp[:-1]
             server.create_job(tmp[:-1], floder_config)
-
-
 def create_config(server):
     old_project_name = 'k8s-demon-helloworld' + ('-submodules' if args.sub_module else '') + "-1.0"
     config = server.get_job_config('xcardata/demo/' + old_project_name)
-
     DEFAULT_GIT_URL = 'http://gitlab.xcar.com.cn/data-devops/spring-boot-k8s-demo.git'
     config = config.replace(DEFAULT_GIT_URL, args.gitlab_url)
-
     env_dist = os.environ
     logger.info('sys env env_dist.get(MVN_CMD):%s' % env_dist.get("MVN_CMD"))
     if args.sub_module:
@@ -288,46 +274,34 @@ def create_config(server):
         DEFAULT_INVOKE_SHELL = '<command>sh /var/lib/jenkins/tools/jenkins/build.sh</command>'
         REPLACE_INVOKE_SHELL = '<command>%s \n sh /var/lib/jenkins/tools/jenkins/build.sh</command>' % ('export MVN_CMD=' + '\"' + env_dist.get("MVN_CMD").replace("&", "&amp;") + '\"')
         config = config.replace(DEFAULT_INVOKE_SHELL, REPLACE_INVOKE_SHELL)
-
     logger.info('DEFAULT CONFIG: %s' % config)
-
     return config
-
-
 def main():
     server = jenkins.Jenkins(args.jenkins_url, username=args.jenkins_user, password=args.jenkins_auth)
-
     helm_conf = None
     for dir in os.listdir('./' + args.sub_module):
         print('dir %s' % dir)
         if dir.startswith('.helm-'):
             with open('./' + args.sub_module + '/' + dir) as file:
                 helm_conf = load(file)
-
     jenkins_conf = helm_conf.get('jenkins')
     if jenkins_conf:
         project_path = jenkins_conf['project_path']
     else:
         print('.helm-spring-boot.yaml没有Jenkins相关配置')
         sys.exit(1)
-
     exists = server.job_exists(project_path)
     print('%s exists: %s' % (project_path, exists))
-
     dirs = project_path.replace('\\', '/').strip().rstrip('/').split('/')[:-1]
     print('dirs %s' % dirs)
     make_folder(server, dirs)
-
     config = create_config(server)
-    
     if exists:
         server.reconfig_job(project_path, config)
         print('%s 更新成功', project_path)
     else:
         server.create_job(project_path, config)
         print('%s 创建成功', project_path)
-
-
 if __name__ == '__main__':
     args = get_parser().parse_args()
     validate()
