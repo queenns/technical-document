@@ -56,8 +56,6 @@ def set_sys_default_encode(default_encoding):
     if sys.getdefaultencoding() != default_encoding:
         reload(sys)
         sys.setdefaultencoding(default_encoding)
-
-
 def set_sys_utf8():
     set_sys_default_encode('utf-8')
 ```
