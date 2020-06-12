@@ -100,8 +100,6 @@ liu_xiaojian=token-czw8x:dg95vl9pxxxxxx9pvzmz9h95gp8crnwttr9tlswfjv75stmkxxxxxx
 import sys
 from yaml import load
 import json
-
-
 def flatten_json(y):
     out = {}
 
@@ -119,7 +117,6 @@ def flatten_json(y):
 
     flatten(y)
     return out
-
 with open(sys.argv[1]) as f:
      yml_dic=load(f)
      print json.dumps(flatten_json(yml_dic)).replace('.[','[')
