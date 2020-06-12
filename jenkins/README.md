@@ -2,7 +2,7 @@
 
 官方地址：[https://www.jenkins.io/](https://www.jenkins.io/)
 ******
-持续集成、自动化构建部署软件代码工具，细节参考如下[目录](#directory)
+持续集成、自动化构建部署软件代码工具，细节参考如下[目录](#目录)
 ******
 **CI/CD**
 - ***CI***   持续集成(Continuous Integration) 
@@ -10,6 +10,6 @@
 ******
 ![Jenkins](images/jenkins.jpg)
 ******
-## <span id="directory">目录</span>
+## 目录
 * [安装](install.md)
 * [插件](plugins.md) 
