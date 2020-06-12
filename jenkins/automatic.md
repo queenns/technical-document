@@ -86,14 +86,11 @@ drwxr-xr-x 2 jenkins jenkins    4096 Jun  8 11:26 tokens
 # cat test.conf 
 # profile
 profile_name=dev
-
 # rancher
 context="local:p-xxxxxx"
 url="https://rancher.xcar.com.cn/v3"
-
 # rancher login valid user
 jenkins_token=token-c2mlm:vgjc7shpxxxxxxzwjpc29q42727lffw6vr9hd2pfl7fx7bl5xxxxxx
-
 # rancher user token
 liu_xiaojian=token-czw8x:dg95vl9pxxxxxx9pvzmz9h95gp8crnwttr9tlswfjv75stmkxxxxxx
 ```
