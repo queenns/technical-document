@@ -53,21 +53,12 @@ sh /var/lib/jenkins/tools/jenkins/init.sh
 4. python工具类**/var/lib/jenkins/tools/utils/StringUtil.py**
 ```python
 def set_sys_default_encode(default_encoding):
-    """
-    修改系统默认字符集
-    :param default_encoding:
-    :return:
-    """
     if sys.getdefaultencoding() != default_encoding:
         reload(sys)
         sys.setdefaultencoding(default_encoding)
 
 
 def set_sys_utf8():
-    """
-    修改系统默认字符集为utf-8，避免python2的字符集错误
-    :return:
-    """
     set_sys_default_encode('utf-8')
 ```
 5. maven安装
