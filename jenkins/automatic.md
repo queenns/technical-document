@@ -102,7 +102,6 @@ from yaml import load
 import json
 def flatten_json(y):
     out = {}
-
     def flatten(x, name=''):
         if type(x) is dict:
             for a in x:
@@ -114,7 +113,6 @@ def flatten_json(y):
                 i += 1
         else:
             out[name[:-1]] = x
-
     flatten(y)
     return out
 with open(sys.argv[1]) as f:
@@ -143,7 +141,6 @@ eval $cmd
 #!/usr/bin/sh
 set -e
 source /var/lib/jenkins/.bashrc
-
 # 1.如果是子模块项目，切换到子模块运行
 sub_path=${1:-'.'}
 cd ${sub_path}
