@@ -5,14 +5,19 @@
 
 ## 安装步骤
 
-1. 操作系统，Linux类型
-   * [单机](es-local.md)
-   * [集群](es-cluster.md)
-2. Java环境，Java8或Java11
-   * [单机](es-local.md)
-   * [集群](es-cluster.md)
+1. 操作系统
+   ```bash
+   root@root:~$ cat /etc/redhat-release 
+   CentOS Linux release 7.5.1804 (Core)
+   ```
+2. Java环境**Java8+**
+   ```bash
+   root@root:~$ java -version
+   openjdk version "1.8.0_232"
+   OpenJDK Runtime Environment (build 1.8.0_232-b09)
+   OpenJDK 64-Bit Server VM (build 25.232-b09, mixed mode)
+   ```
 3. 安装包拷贝至 **/opt** 目录
-
    ```bash
    root@root:/opt$ ls -al
    drwxr-xr-x 13 root root 4096 Mar   7 10:24 .
