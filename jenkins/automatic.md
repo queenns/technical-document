@@ -144,27 +144,22 @@ source /var/lib/jenkins/.bashrc
 # 1.如果是子模块项目，切换到子模块运行
 sub_path=${1:-'.'}
 cd ${sub_path}
-
 # 2.注入Rancher执行路径，简化执行命令
 export RANCHER_HOME="/var/lib/jenkins/tools/rancher"
 export PATH=$PATH:${RANCHER_HOME}
-
 # 3.解析helm
 export helm_file=$(ls .helm-*.yaml| head -n 1)
 export helm_name=$(echo ${helm_file} |awk -F '.' '{print $2}'| sed 's/helm-//g')
-
 export NAMESPACE=$(cat ${helm_file}| grep '^namespace:' |gawk  '{print $2}')
 export APP=$(cat ${helm_file}| grep '^name:' |gawk  '{print $2}')
 export DOCKER_IMAGE=$(cat ${helm_file} | grep '^image:' |gawk '{print $2}')
 export HOST_NAME=$(cat ${helm_file} | grep '^  host: ' |gawk '{print $2}')
 export JENKINS_PATH=$(cat ${helm_file} | grep '^  project_path: ' |gawk '{print $2}')
-
 # 4.Rancher的Jenkins管理员用户登录，判断新建还是更新
 source ${RANCHER_HOME}/tokens/${CLUSTER}.conf
 login=$(echo "rancher login ${url} -t ${jenkins_token} --context ${context}"|tr "\r" " ")
 echo $login
 eval $login
-
 namespace_exist=1
 for ctx in $(rancher projects ls -q| awk '{print $1}')
 do
@@ -179,10 +174,8 @@ if [[ namespace_exist -eq 1 ]];then
     echo "命名空间不存在，请先创建"
     exit 1
 fi
-
 # 5.执行maven编译
 eval $MVN_CMD
-
 # 6.镜像打包及处理
 tag=$(echo ${GIT_COMMIT} | cut -c 1-8)
 if [[ ${BUILD_DOCKER_WITH_GIT_TAG} = "true" ]]; then tag=${branche_or_tag} ; fi
@@ -198,30 +191,24 @@ eval ${build_cmd}
 docker login -u${HARBOR_USER} -p${HARBOR_PASS} data-harbor.xcar.com.cn
 docker push ${image}
 docker rmi ${image}
-
 # 7.rancher部署
 export user_token_key=$(echo  ${BUILD_USER_ID} | tr "." "_")
 export user_token=$(cat ${RANCHER_HOME}/tokens/${CLUSTER}.conf | grep "^${user_token_key}=" |gawk -F "="  '{print $2}')
-
 tmp_answers_file=/tmp/values.json
 flatten.py ${helm_file}  > ${tmp_answers_file}
-
 values=""
 if [ ${helm_name} = "spring-boot" ]
 then
     values="--set env.profile_name=${profile_name}"
 fi
-
 answers="--answers ${tmp_answers_file} --set author=${BUILD_USER_ID}  --set image=${image} ${values} ${APP} "
 install="rancher apps install cattle-global-data:xcar-${helm_name} --version 0.1.0 -n ${NAMESPACE} ${answers}"
 upgrade="rancher apps upgrade ${answers} 0.1.0"
-
 cmd=${install}
 if [[ $(rancher apps -o json| jq -r .App.name | grep -w ${APP})0 = ${APP}0 ]]; then
     cmd=${upgrade}
 fi
 user_login=$(echo "rancher login ${url} -t ${user_token} --context ${user_context}"|tr "\r" " ")
-
 eval ${user_login}
 eval ${cmd}
 ```
