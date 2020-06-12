@@ -13,6 +13,5 @@
 * [Logstash](logstash.md) 
 * [Elasticsearch](elasticsearch/es.md)
 * [Kibana](kibana.md)
-* [Jenkins](jenkins/install.md)
+* [Jenkins](jenkins/README.md)
 * [Docker](docker/install.md)
-
