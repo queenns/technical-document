@@ -1,19 +1,19 @@
-1. 安装包：[elasticsearch-7.2.0-linux-x86_64.tar.gz](https://pan.baidu.com/s/1OsCx1dRUtvtBYUSgCwUKOw) 提取码: gpej
-2. 官方下载：https://www.elastic.co/cn/downloads/elasticsearch
+# Elasticsearch
 
-### 安装步骤
+1. 安装包：[elasticsearch-7.2.0-linux-x86\_64.tar.gz](https://pan.baidu.com/s/1OsCx1dRUtvtBYUSgCwUKOw) 提取码: gpej
+2. 官方下载：[https://www.elastic.co/cn/downloads/elasticsearch](https://www.elastic.co/cn/downloads/elasticsearch)
+
+## 安装步骤
 
 1. 操作系统，Linux类型
-   - [单机](es-local.md)
-   - [集群](es-cluster.md)
-
+   * [单机](es-local.md)
+   * [集群](es-cluster.md)
 2. Java环境，Java8或Java11
-   - [单机](es-local.md)
-   - [集群](es-cluster.md)
-
+   * [单机](es-local.md)
+   * [集群](es-cluster.md)
 3. 安装包拷贝至 **/opt** 目录
 
-   ``` sh
+   ```bash
    root@root:/opt$ ls -al
    drwxr-xr-x 13 root root 4096 Mar   7 10:24 .
    drwxr-xr-x 27 root root 4096 Sep  14  2020 ..
@@ -21,31 +21,36 @@
    ```
 
 4. 解压安装包
-   ``` sh
+
+   ```bash
    root@root:/opt$ tar -xvf elasticsearch-7.2.0-linux-x86_64.tar.gz
    ```
 
 5. 添加用户
-   ``` sh
+
+   ```bash
    root@root:/opt$ useradd -M -s /sbin/nologin elastic
    ```
 
 6. 修改es权限
-   ``` sh
+
+   ```bash
    root@root:/opt$ chown -R elastic:elastic elasticsearch-7.2.0/
    ```
 
 7. **/opt/elasticsearch-7.2.0/config/jvm.options** 根据实际情况设置堆内存大小
 
-   ``` op
+   ```text
    # Xms represents the initial size of total heap space
    # Xmx represents the maximum size of total heap space
-   
+
    -Xms512M
    -Xmx512M
    ```
+
    8.**/opt/elasticsearch-7.2.0/config/elasticsearch.yml**
-   ``` yaml
+
+   ```yaml
    # 集群名称
    cluster.name: local-cluster
    # 节点名称
@@ -71,25 +76,27 @@
    ```
 
 8. 配置本机Ip的host **/etc/hosts**
-   ``` sh
+
+   ```bash
    echo '10.200.16.4 local-elasticsearch-node' >> /etc/hosts
    ```
 
-9. 设置**bootstrap.memory_lock=true**时，需要修改服务器配置
-   ***
-   |命令|描述|
-   |:-----|:-----|
-   |\*|表示所有用户|
-   |soft|代表警告的设定，可以超过这个设定值，但是超过后会有警告|
-   |hard|代表严格的设定，不允许超过这个设定的值|
-   |nofile|是每个进程可以打开的文件数的限制|
-   |nproc|是操作系统级别对每个用户创建的进程数的限制|
-   |memlock|是操作系统级别对每个用户内存的限制|
-   ``` sh
+9. 设置**bootstrap.memory\_lock=true**时，需要修改服务器配置
+
+   | 命令 | 描述 |
+   | :--- | :--- |
+   | \* | 表示所有用户 |
+   | soft | 代表警告的设定，可以超过这个设定值，但是超过后会有警告 |
+   | hard | 代表严格的设定，不允许超过这个设定的值 |
+   | nofile | 是每个进程可以打开的文件数的限制 |
+   | nproc | 是操作系统级别对每个用户创建的进程数的限制 |
+   | memlock | 是操作系统级别对每个用户内存的限制 |
+
+   ```bash
    sudo vi /etc/security/limits.conf
-   
+
    # 添加以下内容
-   
+
    * soft nofile 65536
    * hard nofile 65536
    * soft nproc 2048
@@ -97,15 +104,18 @@
    elastic soft memlock unlimited
    elastic hard memlock unlimited
    ```
-   ***
+
    设置进程能拥有的最多内存区域
-   ***
-   ``` sh
+
+   ```bash
    echo 'vm.max_map_count = 262144' >> /etc/sysctl.conf
    sysctl -p
    ```
+
 10. 启动
-   ``` sh
-   sudo su - elastic
-   nohup /opt/elasticsearch-7.2.0/bin/elasticsearch > /dev/null 2>&1 &
-   ```
+
+    ```bash
+    sudo su - elastic
+    nohup /opt/elasticsearch-7.2.0/bin/elasticsearch > /dev/null 2>&1 &
+    ```
+
