@@ -34,13 +34,16 @@
 5. 添加用户
 
    ```bash
-   root@root:/opt$ useradd -M -s /sbin/nologin elastic
+   # 不登录创建方式
+   root@root:$ useradd -M -s /sbin/nologin elastic
+   # 登录创建方式
+   root@root:$ useradd -M -s /bin/bash elastic
    ```
 
 6. 修改es权限
 
    ```bash
-   root@root:/opt$ chown -R elastic:elastic elasticsearch-7.2.0/
+   root@root:$ chown -R elastic:elastic /opt/elasticsearch-7.2.0/
    ```
 
 7. **/opt/elasticsearch-7.2.0/config/jvm.options** 根据实际情况设置堆内存大小
