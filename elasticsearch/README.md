@@ -7,4 +7,7 @@
 ******
 ## 目录
 * [安装](install.md)
+* [基础](base.md)
+* [插件](plugins.md)
+* [迁移](move.md)
 ******
