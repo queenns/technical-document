@@ -1,4 +1,4 @@
-# Elasticsearch
+# 安装
 
 1. 安装包：[elasticsearch-7.2.0-linux-x86\_64.tar.gz](https://pan.baidu.com/s/1OsCx1dRUtvtBYUSgCwUKOw) 提取码: gpej
 2. 官方下载：[https://www.elastic.co/cn/downloads/elasticsearch](https://www.elastic.co/cn/downloads/elasticsearch)
