@@ -14,3 +14,4 @@
 * [Kibana](kibana.md)
 * [Jenkins](jenkins/README.md)
 * [Docker](docker/install.md)
+* [Kubernetes](kubernetes/README.md)
