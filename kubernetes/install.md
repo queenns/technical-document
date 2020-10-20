@@ -17,13 +17,13 @@ host.com: 自定义域
 [~]# hostnamectl set-hostname node66-104.host.com
 [~]# hostnamectl set-hostname node66-105.host.com
 [~]# hostnamectl set-hostname node66-106.host.com
-[~]# hostnamectl set-hostname node66-107.host.com 
+[~]# hostnamectl set-hostname node66-107.host.com
 ```
 
 ## 3.系统环境
 ```bash
-[~]# cat /etc/redhat-release 
-CentOS Linux release 7.5.1804 (Core) 
+[~]# cat /etc/redhat-release
+CentOS Linux release 7.5.1804 (Core)
 [~]# uname -sr
 Linux 3.10.0-862.el7.x86_64
 ```
@@ -33,7 +33,7 @@ Linux 3.10.0-862.el7.x86_64
 # 永久关闭SElinux需要重启,执行以下命令为临时关闭
 [~]# setenforce 0
 [~]# sed --follow-symlinks -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
-[~]# getenforce 
+[~]# getenforce
 Permissive
 
 # 关闭防火墙
@@ -127,5 +127,4 @@ node66-104        A    10.20.66.104
 node66-105        A    10.20.66.105
 node66-106        A    10.20.66.106
 node66-107        A    10.20.66.107
-
 ```
