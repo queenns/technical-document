@@ -95,7 +95,7 @@ $TTL 600        ; 10 minutes
 @       IN SOA  dns.host.com. dnsadmin.host.com. (
                                 2020101701 ; serial
                                 10800      ; refresh (3 hours)
-                                900        ; retry (15 minutes)
+                                 900        ; retry (15 minutes)
                                 604800     ; expire (1 week)
                                 86400      ; minimum (1 day)
                                 )
@@ -108,7 +108,7 @@ node66-105        A    10.20.66.105
 node66-106        A    10.20.66.106
 node66-107        A    10.20.66.107
 
-[root@node66-103 ~]# vi /var/named/bs.com.zone
+[root@node66-103 ~]# vi /var/named/op.com.zone
 
 $ORIGIN op.com.
 $TTL 600        ; 10 minutes
@@ -122,9 +122,458 @@ $TTL 600        ; 10 minutes
                         NS   dns.op.com.
 $TTL 60 ; 1 minute
 dns               A    10.20.66.103
-node66-103        A    10.20.66.103
-node66-104        A    10.20.66.104
-node66-105        A    10.20.66.105
-node66-106        A    10.20.66.106
-node66-107        A    10.20.66.107
+harbor            A    10.20.66.103
+
+[root@node66-103 ~]# named-checkconf
+[root@node66-103 ~]# systemctl restart named
+[root@node66-103 ~]# netstat -luntp | grep 53
+
+[root@node66-103 ~]# dig -t A node66-103.host.com @10.20.66.103 +short
+10.20.66.103
+[root@node66-103 ~]# dig -t A node66-104.host.com @10.20.66.103 +short
+10.20.66.104
+[root@node66-103 ~]# dig -t A node66-105.host.com @10.20.66.103 +short
+10.20.66.105
+[root@node66-103 ~]# dig -t A node66-106.host.com @10.20.66.103 +short
+10.20.66.106
+[root@node66-103 ~]# dig -t A node66-107.host.com @10.20.66.103 +short
+10.20.66.107
+
+# update 104-107 dns 10.20.66.103
+[~]vi /etc/sysconfig/network-scripts/ifcfg-eth0
+[~]systemctl restart network
+```
+
+## 证书
+```sh
+[~]# wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64 -O /usr/bin/cfssl
+[~]# wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64 -O /usr/bin/cfssl-json
+[~]# wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64 -O  /usr/bin/cfssl-certinfo
+[~]# chmod +x /usr/bin/cfssl*
+
+[~]# mkdir -p /opt/certs
+[~]# cd /opt/certs
+
+# CN: Common Name,浏览器使用该字段验证网站是否合法,一般写的是域名,非常重要
+# C: Country 国家
+# ST: State 州,省
+# L: Locality 地区,城市
+# O: Organization Name 组织名称,公司名称　
+# OU: Organization Unit Name 组织单位名称,公司部门
+[~]# vi /opt/certs/ca-csr.json
+{
+  "CN": "LiuxiaojianDebug",
+  "hosts": [],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "beijing",
+      "L": "beijing",
+      "O": "ONLXJ",
+      "OU": "ONLXJTD"
+    }
+  ],
+  "ca": {
+    "expiry": "175200h"
+  }
+}
+[~]# cfssl gencert -initca ca-csr.json | cfssl-json -bare ca
+```
+
+## Docker
+```sh
+[~]# curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
+[~]# mkdir -p /etc/docker /var/lib/docker
+[~]# vi /etc/docker/daemon.json
+{
+  "graph": "/var/lib/docker",
+  "storage-driver": "overlay2",
+  "insecure-registries": ["harbor.op.com"],
+  "bip": "172.1.1.1/24",
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "live-restore": true
+}
+[~]# systemctl start docker
+```
+
+## Harbor
+```sh
+[~]# mkdir -p /opt/src
+[/opt/src]# wget https://github.com/goharbor/harbor/releases/download/v1.8.5/harbor-offline-installer-v1.8.5.tgz
+[~]# tar -xvf harbor-offline-installer-v1.8.5.tgz -C /opt
+[/opt]# mv harbor harbor-v1.8.5
+[/opt]# ln -s /opt/harbor-v1.8.5 /opt/harbor
+
+[/opt]# yum install -y docker-compose
+[/opt/harbor]# vi harbor/harbor.yml
+hostname: harbor.op.com
+http:
+  port: 180
+[/opt/harbor]# sh install.sh
+[/opt/harbor]# docker-compose ps
+Name                     Command               State             Ports          
+--------------------------------------------------------------------------------------
+harbor-core         /harbor/start.sh                 Up                               
+harbor-db           /entrypoint.sh postgres          Up      5432/tcp                 
+harbor-jobservice   /harbor/start.sh                 Up                               
+harbor-log          /bin/sh -c /usr/local/bin/ ...   Up      127.0.0.1:1514->10514/tcp
+harbor-portal       nginx -g daemon off;             Up      80/tcp                   
+nginx               nginx -g daemon off;             Up      0.0.0.0:180->80/tcp      
+redis               docker-entrypoint.sh redis ...   Up      6379/tcp                 
+registry            /entrypoint.sh /etc/regist ...   Up      5000/tcp                 
+registryctl         /harbor/start.sh                 Up
+[~]# yum install -y nginx
+[~]# vi /etc/nginx/conf.d/harbor.op.com.conf
+server{
+    listen                 80;
+    server_name            harbor.op.com;
+    client_max_body_size   1024m;
+    location / {
+        proxy_pass http://127.0.0.1:180;
+    }
+}
+[~]# nginx -t
+[~]# systemctl start nginx
+[~]# systemctl enable nginx
+
+# 验证每个节点对harbor.op.com是否有解析
+[~]# dig -t A harbor.op.com +short
+10.20.66.103
+```
+
+## Etcd
+```sh
+[~]# vi /opt/certs/ca-config.json
+{
+    "signing": {
+        "default": {
+            "expiry": "175200h"
+        },
+        "profiles": {
+            "server": {
+                "expiry": "175200h",
+                "usages": [
+                    "signing",
+                    "key encipherment",
+                    "server auth"
+                ]
+            },
+            "client": {
+                "expiry": "175200h",
+                "usages": [
+                    "signing",
+                    "key encipherment",
+                    "client auth"
+                ]
+            },
+            "peer": {
+                "expiry": "175200h",
+                "usages": [
+                    "signing",
+                    "key encipherment",
+                    "server auth",
+                    "client auth"
+                ]
+            }
+        }
+    }
+}
+[~]# vi /opt/certs/etcd-peer-csr.json
+{
+    "CN": "kubernetes-etcd",
+    "hosts": [
+        "10.20.66.105",
+        "10.20.66.106",
+        "10.20.66.107"
+    ],
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [{
+        "C": "CN",
+        "ST": "beijing",
+        "L": "beijing",
+        "O": "ONLXJ",
+        "OU": "ONLXJTD"
+    }]
+}
+[/opt/certs]# cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=peer etcd-peer-csr.json | cfssl-json -bare etcd-peer
+[/opt/certs]# ls -al
+总用量 44
+drwxr-xr-x. 2 root root 4096 10月 23 19:51 .
+drwxr-xr-x. 6 root root 4096 10月 22 23:04 ..
+-rw-r--r--  1 root root  836 10月 23 19:45 ca-config.json
+-rw-r--r--. 1 root root 1013 10月 22 21:52 ca.csr
+-rw-r--r--. 1 root root  271 10月 22 21:51 ca-csr.json
+-rw-------. 1 root root 1675 10月 22 21:52 ca-key.pem
+-rw-r--r--. 1 root root 1383 10月 22 21:52 ca.pem
+-rw-r--r--  1 root root 1074 10月 23 19:51 etcd-peer.csr
+-rw-r--r--  1 root root  327 10月 23 19:50 etcd-peer-csr.json
+-rw-------  1 root root 1675 10月 23 19:51 etcd-peer-key.pem
+-rw-r--r--  1 root root 1456 10月 23 19:51 etcd-peer.pem
+
+[~]# useradd -s /sbin/nologin -M etcd
+[~]#  wget https://github.com/etcd-io/etcd/releases/download/v3.1.20/etcd-v3.1.20-linux-amd64.tar.gz
+[~]# tar -xvf etcd-v3.1.20-linux-amd64.tar.gz -C /opt
+[~]# mv /opt/etcd-v3.1.20-linux-amd64 /opt/etcd-v3.1.20
+[~]# ln -s /opt/etcd-v3.1.20 /opt/etcd
+
+[~]# mkdir -p /opt/etcd/certs /export/etcd/etcd-server /export/etcd/logs
+[~]# scp node66-103:/opt/certs/ca.pem /opt/etcd/certs
+[~]# scp node66-103:/opt/certs/etcd-peer.pem /opt/etcd/certs
+[~]# scp node66-103:/opt/certs/etcd-peer-key.pem /opt/etcd/certs
+
+[~]# vi /opt/etcd/etcd-server-startup.sh
+
+#!/bin/sh
+./etcd --name etcd-server-66-105 \
+       --data-dir /export/etcd/etcd-server \
+       --listen-peer-urls https://10.20.66.105:2380 \
+       --listen-client-urls https://10.20.66.105:2379,http://127.0.0.1:2379 \
+       --quota-backend-bytes 8000000000 \
+       --initial-advertise-peer-urls https://10.20.66.105:2380 \
+       --advertise-client-urls https://10.20.66.105:2379,http://127.0.0.1:2379 \
+       --initial-cluster etcd-server-66-105=https://10.20.66.105:2380,etcd-server-66-106=https://10.20.66.106:2380,etcd-server-66-107=https://10.20.66.107:2380 \
+       --ca-file ./certs/ca.pem \
+       --cert-file ./certs/etcd-peer.pem \
+       --key-file ./certs/etcd-peer-key.pem \
+       --client-cert-auth \
+       --trusted-ca-file ./certs/ca.pem \
+       --peer-ca-file ./certs/ca.pem \
+       --peer-cert-file ./certs/etcd-peer.pem \
+       --peer-key-file ./certs/etcd-peer-key.pem \
+       --peer-client-cert-auth \
+       --peer-trusted-ca-file ./certs/ca.pem \
+       --log-output stdout
+[~]# chmod +x /opt/etcd/etcd-server-startup.sh
+[~]# chown -R etcd:etcd /opt/etcd-v3.1.20
+[~]# chown -R etcd:etcd /export/etcd
+
+[~]# yum install -y supervisor
+[~]# systemctl start supervisord
+[~]# systemctl enable supervisord
+
+[~]# vi /etc/supervisord.d/etcd-server.ini
+
+[program:etcd-server-66-105]
+command=/opt/etcd/etcd-server-startup.sh           ; the program(relative uses PATH, can take args)
+numprocs=1                                         ; number of processes copies to start (def 1)
+directory=/opt/etcd                                ; directory to cwd to before exec (def no cwd)
+autostart=true                                     ; start at supervisord start (default: true)
+autorestar=true                                    ; restart at unexpected quit (default: true)
+startsecs=30                                       ; number of secs prog must stay running (def. 1)
+startretries=3                                     ; max # of serial start failures (default 3)
+exitcodes=0,2                                      ; 'expected' exit codes for process (default 0,2)
+stopsignal=QUIT                                    ; signal used to kill process (default TERM)
+stopwaitsecs=10                                    ; max num secs to wait b4 SIGKILL (default 10)
+user=etcd                                          ; setuid to this UNIX account to run the program
+redirect_stderr=true                               ; redirect proc stderr to stdout (default false)
+stdout_logfile=/export/etcd/logs/etcd.stdout.log   ; stdout log path, NONE for none; default AUTO
+stdout_logfile_maxbytes=64MB                       ; max # logfile bytes b4 rotation (default 50MB)
+stdout_logfile_backups=4                           ; # of stdout logfile backups (default 10)
+stdout_capture_maxbytes=1MB                        ; number of bytes in 'capturemode' (default 0)
+stdout_events_enable=false                         ; emit events on stdout writes (default false)
+
+[~]# supervisorctl update
+etcd-server-66-105: added process group
+[~]# supervisorctl status
+etcd-server-66-105               RUNNING   pid 22288, uptime 0:00:38
+[~]# netstat -luntp | grep etcd
+tcp        0      0 10.20.66.105:2379       0.0.0.0:*               LISTEN      22289/./etcd        
+tcp        0      0 127.0.0.1:2379          0.0.0.0:*               LISTEN      22289/./etcd        
+tcp        0      0 10.20.66.105:2380       0.0.0.0:*               LISTEN      22289/./etcd
+
+[~]# /opt/etcd/etcdctl cluster-health
+member 3dd3e7964e370c04 is healthy: got healthy result from http://127.0.0.1:2379
+member acf5c0b7dea7bcf4 is healthy: got healthy result from http://127.0.0.1:2379
+member c21bf6bec3e41b76 is healthy: got healthy result from http://127.0.0.1:2379
+cluster is healthy
+
+[~]# /opt/etcd/etcdctl member list
+3dd3e7964e370c04: name=etcd-server-66-105 peerURLs=https://10.20.66.105:2380 clientURLs=http://127.0.0.1:2379,https://10.20.66.105:2379 isLeader=true
+acf5c0b7dea7bcf4: name=etcd-server-66-106 peerURLs=https://10.20.66.106:2380 clientURLs=http://127.0.0.1:2379,https://10.20.66.106:2379 isLeader=false
+c21bf6bec3e41b76: name=etcd-server-66-107 peerURLs=https://10.20.66.107:2380 clientURLs=http://127.0.0.1:2379,https://10.20.66.107:2379 isLeader=false
+
+```
+
+## apiserver
+```sh
+[~]# wget https://dl.k8s.io/v1.16.15/kubernetes-server-linux-amd64.tar.gz
+
+[~]# vi client-csr.json
+
+{
+    "CN": "kubernetes-node",
+    "hosts": [],
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [{
+        "C": "CN",
+        "ST": "beijing",
+        "L": "beijing",
+        "O": "ONLXJ",
+        "OU": "ONLXJTD"
+    }]
+}
+
+[~]# cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client client-csr.json | cfssl-json -bare client
+
+[~]# vi apiserver-csr.json
+
+{
+    "CN": "kubernetes-apiserver",
+    "hosts": [
+        "127.0.0.1",
+        "kubernetes.default",
+        "kubernetes.default.svc",
+        "kubernetes.default.svc.cluster",
+        "kubernetes.default.svc.cluster.local",
+        "10.20.66.103",
+        "10.20.66.104",
+        "10.20.66.105",
+        "10.20.66.106",
+        "10.20.66.107"
+    ],
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [{
+        "C": "CN",
+        "ST": "beijing",
+        "L": "beijing",
+        "O": "ONLXJ",
+        "OU": "ONLXJTD"
+    }]
+}
+
+[~]# cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=server apiserver-csr.json | cfssl-json -bare apiserver
+
+[/opt/src]# tar -xvf kubernetes-server-linux-amd64.tar.gz -C /opt
+[~]# mv /opt/kubernetes /opt/kubernetes-v1.16.15
+[~]# ln -s /opt/kubernetes-v1.16.15 /opt/kubernetes
+
+# 源码包,无用可删除
+[/opt/kubernetes]# rm -rf kubernetes-src.tar.gz
+
+# 镜像方式,不使用kubeadm方式可删除
+[/opt/kubernetes/server/bin]# rm -rf *.tar
+[/opt/kubernetes/server/bin]# rm -rf *_tag
+
+[~]# mkdir -p /opt/kubernetes/server/bin/certs /opt/kubernetes/server/bin/conf
+[~]# scp node66-103:/opt/certs/ca.pem /opt/kubernetes/server/bin/certs
+[~]# scp node66-103:/opt/certs/ca-key.pem /opt/kubernetes/server/bin/certs
+[~]# scp node66-103:/opt/certs/client.pem /opt/kubernetes/server/bin/certs
+[~]# scp node66-103:/opt/certs/client-key.pem /opt/kubernetes/server/bin/certs
+[~]# scp node66-103:/opt/certs/apiserver.pem /opt/kubernetes/server/bin/certs
+[~]# scp node66-103:/opt/certs/apiserver-key.pem /opt/kubernetes/server/bin/certs
+
+[~]# vi /opt/kubernetes/server/bin/conf/audit.yaml
+
+apiVersion: audit.k8s.io/v1beta1
+kind: Policy
+omitStages:
+  - "RequestReceived"
+rules:
+  - level: RequestResponse
+    resources:
+    - group: ""
+      resources: ["pods"]
+  - level: Metadata
+    resources:
+    - group: ""
+      resources: ["pods/log","pods/status"]
+  - level: None
+    resources:
+    - group: ""
+      resources: ["configmaps"]
+      resourceNames: ["controller-leader"]
+  - level: None
+    users: ["system:kube-proxy"]
+    verbs: ["watch"]
+    resources:
+    - group: ""
+      resources: ["endpoints", "services"]
+  - level: None
+    userGroups: ["system:authenticated"]
+    nonResourceURLs:
+    - "/api*"
+    - "/version"
+  - level: Request
+    resources:
+    - group: ""
+      resources: ["configmaps"]
+    namespaces: ["kube-system"]
+  - level: Metadata
+    resources:
+    - group: ""
+      resources: ["secrets", "configmaps"]
+  - level: Request
+    resources:
+    - group: ""
+    - group: "extensions"
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"
+
+[~]# vi /opt/kubernetes/server/bin/kube-apiserver.sh
+
+#!/bin/bash
+./kube-apiserver \
+  --apiserver-count 2 \
+  --audit-log-path /export/kubernetes/kube-apiserver/audit-log \
+  --audit-policy-file ./conf/audit.yaml \
+  --authorization-mode RBAC \
+  --client-ca-file ./certs/ca.pem \
+  --requestheader-client-ca-file ./certs/ca.pem \
+  --enable-admission-plugins NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota \
+  --etcd-cafile ./certs/ca.pem \
+  --etcd-certfile ./certs/client.pem \
+  --etcd-keyfile ./certs/client-key.pem \
+  --etcd-servers https://10.20.66.105:2379,https://10.20.66.106:2379,https://10.20.66.107:2379 \
+  --service-account-key-file ./certs/ca-key.pem \
+  --service-cluster-ip-range 192.168.0.0/16 \
+  --service-node-port-range 3000-29999 \
+  --target-ram-mb=1024 \
+  --kubelet-client-certificate ./certs/client.pem \
+  --kubelet-client-key ./certs/client-key.pem \
+  --log-dir /export/kubernetes/kube-apiserver/logs \
+  --tls-cert-file ./certs/apiserver.pem \
+  --tls-private-key-file ./certs/apiserver-key.pem \
+  --v 2
+
+[~]# chmod +x /opt/kubernetes/server/bin/kube-apiserver.sh
+[~]# mkdir -p /export/kubernetes/kube-apiserver/logs
+
+[~]# vi /etc/supervisord.d/kube-apiserver.ini
+
+[program:kube-apiserver-66-105]
+command=/opt/kubernetes/server/bin/kube-apiserver.sh                           ; the program(relative uses PATH, can take args)
+numprocs=1                                                                     ; number of processes copies to start (def 1)
+directory=/opt/kubernetes/server/bin                                           ; directory to cwd to before exec (def no cwd)
+autostart=true                                                                 ; start at supervisord start (default: true)
+autorestar=true                                                                ; restart at unexpected quit (default: true)
+startsecs=30                                                                   ; number of secs prog must stay running (def. 1)
+startretries=3                                                                 ; max # of serial start failures (default 3)
+exitcodes=0,2                                                                  ; 'expected' exit codes for process (default 0,2)
+stopsignal=QUIT                                                                ; signal used to kill process (default TERM)
+stopwaitsecs=10                                                                ; max num secs to wait b4 SIGKILL (default 10)
+user=root                                                                      ; setuid to this UNIX account to run the program
+redirect_stderr=true                                                           ; redirect proc stderr to stdout (default false)
+stdout_logfile=/export/kubernetes/kube-apiserver/logs/apiserver.stdout.log     ; stdout log path, NONE for none; default AUTO
+stdout_logfile_maxbytes=64MB                                                   ; max # logfile bytes b4 rotation (default 50MB)
+stdout_logfile_backups=4                                                       ; # of stdout logfile backups (default 10)
+stdout_capture_maxbytes=1MB                                                    ; number of bytes in 'capturemode' (default 0)
+stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
+
+[~]# supervisorctl update
+[~]# supervisorctl status
+
 ```
