@@ -577,3 +577,199 @@ stdout_events_enable=false                                                     ;
 [~]# supervisorctl status
 
 ```
+
+## L4反代 
+```sh 
+[~]# yum install -y nginx
+[~]# vi /etc/nginx/nginx.conf
+
+stream {
+    upstream kube-apiserver {
+        server 10.20.66.105:6443 max_fails=3 fail_timeout=30s;
+        server 10.20.66.106:6443 max_fails=3 fail_timeout=30s;
+        server 10.20.66.107:6443 max_fails=3 fail_timeout=30s;
+    }
+    server {
+        listen 7443;
+        proxy_connect_timeout 2s;
+        proxy_timeout 900s;
+        proxy_pass kube-apiserver;
+    }
+}
+
+[~]# yum install -y keepalived
+[~]# vi /etc/keepalived/check_port.sh
+
+#!/bin/bash
+CHK_PORT=$1
+if [ -n "$CHK_PORT" ];then
+  PORT_PROCESS=`ss -lnt|grep $CHK_PORT|wc -l`
+  if [ $PORT_PROCESS -eq 0 ];then
+    echo "Port $CHK_PORT Is Not Used,End."
+    exit 1
+  fi
+else
+  echo "Check Port Cant Be Empty!"
+fi
+
+[~]# chmod +x /etc/keepalived/check_port.sh
+
+# master
+[~]# vi /etc/keepalived/keepalived.conf
+
+! Configuration File for keepalived
+global_defs {
+  router_id 10.20.66.103
+}
+vrrp_script chk_nginx {
+  script "/etc/keepalived/check_port.sh 7443"
+  interval 2
+  weight -20
+}
+vrrp_instance VI_1 {
+  state MASTER
+  interface eth0
+  virtual_router_id 251
+  priority 100
+  advert_int 1
+  mcast_src_ip 10.20.66.103
+  nopreempt
+
+  authentication {
+    auth_type PASS
+    auth_pass 11111111
+  }
+  track_script {
+    chk_nginx
+  }
+  virtual_ipaddress {
+    10.20.66.1
+  }
+}
+
+# slave
+[~]# vi /etc/keepalived/keepalived.conf
+
+! Configuration File for keepalived
+global_defs {
+  router_id 10.20.66.104
+}
+vrrp_script chk_nginx {
+  script "/etc/keepalived/check_port.sh 7443"
+  interval 2
+  weight -20
+}
+vrrp_instance VI_1 {
+  state BACKUP
+  interface eth0
+  virtual_router_id 251
+  mcast_src_ip 10.20.66.104
+  priority 90
+  advert_int 1
+  
+  authentication {
+    auth_type PASS
+    auth_pass 11111111
+  }
+  track_script {
+    chk_nginx
+  }
+  virtual_ipaddress {
+    10.20.66.1
+  }
+}
+
+[~]# systemctl start keepalived
+[~]# systemctl enable keepalived
+
+# 查看vip 10.20.66.1 是否生效
+[~]# ip add
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 52:54:00:1e:cc:35 brd ff:ff:ff:ff:ff:ff
+    inet 10.20.66.104/21 brd 10.20.71.255 scope global noprefixroute eth0
+       valid_lft forever preferred_lft forever
+    inet 10.20.66.1/32 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::5054:ff:fe1e:cc35/64 scope link 
+       valid_lft forever preferred_lft forever
+
+# 验证vip是否正常可以飘到slave,停掉master,查看slave
+[~]# nginx -s stop
+[~]# ip add
+
+# master重启后vip飘不回来,master配置(nopreempt)非抢占式,需要停掉slave再飘回来,线上准备充分,谨慎操作
+[~]# nginx
+```
+
+## kube-controller-manager
+[~]# vi /opt/kubernetes/server/bin/kube-controller-manager.sh
+
+#!/bin/sh
+./kube-controller-manager \
+  --cluster-cidr 172.7.0.0/16 \
+  --leader-elect true \
+  --log-dir /export/kubernetes/kube-controller-manager/logs \
+  --master http://127.0.0.1:8080 \
+  --service-account-private-key-file ./certs/ca-key.pem \
+  --service-cluster-ip-range 192.168.0.0/16 \
+  --root-ca-file ./certs/ca.pem \
+  --v 2
+
+[~]# chmod +x /opt/kubernetes/server/bin/kube-controller-manager.sh
+[~]# mkdir -p /export/kubernetes/kube-controller-manager/logs
+
+[~]# vi /etc/supervisord.d/kube-controller-manager.ini
+
+[program:kube-controller-manager-66-105]
+command=/opt/kubernetes/server/bin/kube-controller-manager.sh                                    ; the program(relative uses PATH, can take args)
+numprocs=1                                                                                       ; number of processes copies to start (def 1)
+directory=/opt/kubernetes/server/bin                                                             ; directory to cwd to before exec (def no cwd)
+autostart=true                                                                                   ; start at supervisord start (default: true)
+autorestar=true                                                                                  ; restart at unexpected quit (default: true)
+startsecs=30                                                                                     ; number of secs prog must stay running (def. 1)
+startretries=3                                                                                   ; max # of serial start failures (default 3)
+exitcodes=0,2                                                                                    ; 'expected' exit codes for process (default 0,2)
+stopsignal=QUIT                                                                                  ; signal used to kill process (default TERM)
+stopwaitsecs=10                                                                                  ; max num secs to wait b4 SIGKILL (default 10)
+user=root                                                                                        ; setuid to this UNIX account to run the program
+redirect_stderr=true                                                                             ; redirect proc stderr to stdout (default false)
+stdout_logfile=/export/kubernetes/kube-controller-manager/logs/controller-manager.stdout.log     ; stdout log path, NONE for none; default AUTO
+stdout_logfile_maxbytes=64MB                                                                     ; max # logfile bytes b4 rotation (default 50MB)
+stdout_logfile_backups=4                                                                         ; # of stdout logfile backups (default 10)
+stdout_capture_maxbytes=1MB                                                                      ; number of bytes in 'capturemode' (default 0)
+stdout_events_enable=false                                                                       ; emit events on stdout writes (default false)
+
+
+## kube-scheduler
+[~]# vi /opt/kubernetes/server/bin/kube-scheduler.sh
+
+#!/bin/sh
+./kube-scheduler \
+  --leader-elect \
+  --log-dir /export/kubernetes/kube-scheduler/logs \
+  --master http://127.0.0.1:8080 \
+  --v 2
+
+[~]# chmod +x /opt/kubernetes/server/bin/kube-scheduler.sh
+[~]# mkdir -p /export/kubernetes/kube-scheduler/logs
+
+[~]# vi /etc/supervisord.d/kube-scheduler.ini
+
+[program:kube-scheduler-66-105]
+command=/opt/kubernetes/server/bin/kube-scheduler.sh                           ; the program(relative uses PATH, can take args)
+numprocs=1                                                                     ; number of processes copies to start (def 1)
+directory=/opt/kubernetes/server/bin                                           ; directory to cwd to before exec (def no cwd)
+autostart=true                                                                 ; start at supervisord start (default: true)
+autorestar=true                                                                ; restart at unexpected quit (default: true)
+startsecs=30                                                                   ; number of secs prog must stay running (def. 1)
+startretries=3                                                                 ; max # of serial start failures (default 3)
+exitcodes=0,2                                                                  ; 'expected' exit codes for process (default 0,2)
+stopsignal=QUIT                                                                ; signal used to kill process (default TERM)
+stopwaitsecs=10                                                                ; max num secs to wait b4 SIGKILL (default 10)
+user=root                                                                      ; setuid to this UNIX account to run the program
+redirect_stderr=true                                                           ; redirect proc stderr to stdout (default false)
+stdout_logfile=/export/kubernetes/kube-scheduler/logs/scheduler.stdout.log     ; stdout log path, NONE for none; default AUTO
+stdout_logfile_maxbytes=64MB                                                   ; max # logfile bytes b4 rotation (default 50MB)
+stdout_logfile_backups=4                                                       ; # of stdout logfile backups (default 10)
+stdout_capture_maxbytes=1MB                                                    ; number of bytes in 'capturemode' (default 0)
+stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
