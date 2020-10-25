@@ -702,11 +702,12 @@ vrrp_instance VI_1 {
 ```
 
 ## kube-controller-manager
+```sh
 [~]# vi /opt/kubernetes/server/bin/kube-controller-manager.sh
 
 #!/bin/sh
 ./kube-controller-manager \
-  --cluster-cidr 172.7.0.0/16 \
+  --cluster-cidr 172.66.0.0/16 \
   --leader-elect true \
   --log-dir /export/kubernetes/kube-controller-manager/logs \
   --master http://127.0.0.1:8080 \
@@ -739,8 +740,12 @@ stdout_logfile_backups=4                                                        
 stdout_capture_maxbytes=1MB                                                                      ; number of bytes in 'capturemode' (default 0)
 stdout_events_enable=false                                                                       ; emit events on stdout writes (default false)
 
+[~]# supervisorctl update
+[~]# supervisorctl status
+```
 
 ## kube-scheduler
+```sh
 [~]# vi /opt/kubernetes/server/bin/kube-scheduler.sh
 
 #!/bin/sh
@@ -773,3 +778,121 @@ stdout_logfile_maxbytes=64MB                                                   ;
 stdout_logfile_backups=4                                                       ; # of stdout logfile backups (default 10)
 stdout_capture_maxbytes=1MB                                                    ; number of bytes in 'capturemode' (default 0)
 stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
+
+[~]# supervisorctl update
+[~]# supervisorctl status
+
+# 1.16.15版本,应该是bug导致,componentstatuses显示集群状态不对，使用第二个命令查看
+[~]# ln -s /opt/kubernetes/server/bin/kubectl /usr/bin/kubectl
+[~]# kubectl get cs
+[~]# kubectl get cs -o yaml
+```
+## kubelet
+```sh
+[~]# vi kubelet-csr.json
+
+{
+  "CN": "kubernetes-kubelet",
+  "hosts": [
+    "127.0.0.1",
+    "10.20.66.105",
+    "10.20.66.106",
+    "10.20.66.107"
+  ],
+  "key": {
+    "algo": "rsa",
+    "size": 2048	
+  },
+  "names": [{
+        "C": "CN",
+        "ST": "beijing",
+        "L": "beijing",
+        "O": "ONLXJ",
+        "OU": "ONLXJTD"
+    }]
+}
+
+[~]# cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=server kubelet-csr.json | cfssl-json -bare kubelet
+[~]# scp kubelet.pem root@ip:/opt/kubernetes/server/bin/certs
+[~]# scp kubelet-key.pem root@ip:/opt/kubernetes/server/bin/certs
+
+[~]# vi /opt/kubernetes/server/bin/conf/kubernetes-node.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubernetes-node
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: kubernetes-node
+
+[~]# cd /opt/kubernetes/server/bin/conf
+
+# set cluster. 证书反解 `echo ${kubelet.kubeconfig.certificate-authority-data}|base64 -d`
+[~]# kubectl config set-cluster owo-cluster --certificate-authority=/opt/kubernetes/server/bin/certs/ca.pem --embed-certs=true --server=https://10.20.66.1:7443 --kubeconfig=kubelet.kubeconfig
+# set-credentials
+[~]# kubectl config set-credentials owo-credentials --client-certificate=/opt/kubernetes/server/bin/certs/client.pem --client-key=/opt/kubernetes/server/bin/certs/client-key.pem --embed-certs=true --kubeconfig=kubelet.kubeconfig
+# set context
+[~]# kubectl config set-context owo-context --cluster=owo-cluster --user=owo-credentials --kubeconfig=kubelet.kubeconfig
+# use context
+[~]# kubectl config use-context owo-context --kubeconfig=kubelet.kubeconfig
+
+[~]# kubectl create -f /opt/kubernetes/server/bin/conf/kubernetes-node.yaml
+
+[~]# scp /opt/kubernetes/server/bin/conf/kubelet.kubeconfig root@ip:/opt/kubernetes/server/bin/conf
+
+[~]# docker pull kubernetes/pause
+[~]# docker tag kubernetes/pause:latest harobr.op.com/public/pause:latest
+[~]# docker push harbor.op.com/public/pause:latest
+
+[~]# vi /opt/kubernetes/server/bin/kube-kubelet.sh
+
+#!/bin/sh
+./kubelet \
+  --anonymous-auth=false \
+  --cgroup-driver systemd \
+  --cluster-dns 192.168.0.2 \
+  --cluster-domain cluster.local \
+  --runtime-cgroup=/systemd/system.slice \
+  --kubelet-cgroup=/systemd/system.slice \
+  --fail-swap-on="false" \
+  --client-ca-file ./certs/ca.pem \
+  --tls-cert-file ./certs/kubelet.pem \
+  --tls-private-key-file ./certs/kubelet-key.pem \
+  --hostname-override node66-105.host.com \
+  --image-gc-high-threshold 20 \
+  --image-gc-low-threshold 10 \
+  --kubeconfig ./conf/kubelet.kubeconfig \
+  --log-dir /export/kubernetes/kube-kubelet/logs \
+  --pod-infra-container-image harbor.op.com/public/pause:latest \
+  --root-dir /export/kubernetes/kube-kubelet
+
+[~]# chmod +x /opt/kubernetes/server/bin/kube-kubelet.sh
+[~]# mkdir -p /export/kubernetes/kube-kubelet/logs
+
+[~]# vi /etc/supervisord.d/kube-kubelet.ini
+[program:kube-kubelet-66-105]
+command=/opt/kubernetes/server/bin/kube-kubelet.sh                             ; the program(relative uses PATH, can take args)
+numprocs=1                                                                     ; number of processes copies to start (def 1)
+directory=/opt/kubernetes/server/bin                                           ; directory to cwd to before exec (def no cwd)
+autostart=true                                                                 ; start at supervisord start (default: true)
+autorestar=true                                                                ; restart at unexpected quit (default: true)
+startsecs=30                                                                   ; number of secs prog must stay running (def. 1)
+startretries=3                                                                 ; max # of serial start failures (default 3)
+exitcodes=0,2                                                                  ; 'expected' exit codes for process (default 0,2)
+stopsignal=QUIT                                                                ; signal used to kill process (default TERM)
+stopwaitsecs=10                                                                ; max num secs to wait b4 SIGKILL (default 10)
+user=root                                                                      ; setuid to this UNIX account to run the program
+redirect_stderr=true                                                           ; redirect proc stderr to stdout (default false)
+stdout_logfile=/export/kubernetes/kube-kubelet/logs/kubelet.stdout.log         ; stdout log path, NONE for none; default AUTO
+stdout_logfile_maxbytes=64MB                                                   ; max # logfile bytes b4 rotation (default 50MB)
+stdout_logfile_backups=4                                                       ; # of stdout logfile backups (default 10)
+stdout_capture_maxbytes=1MB                                                    ; number of bytes in 'capturemode' (default 0)
+stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
+
+```
