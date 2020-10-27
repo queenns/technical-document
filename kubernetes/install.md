@@ -579,8 +579,8 @@ stdout_events_enable=false                                                     ;
 
 ```
 
-## L4反代 
-```sh 
+## L4反代
+```sh
 [~]# yum install -y nginx
 [~]# vi /etc/nginx/nginx.conf
 
@@ -667,7 +667,7 @@ vrrp_instance VI_1 {
   mcast_src_ip 10.20.66.104
   priority 90
   advert_int 1
-  
+
   authentication {
     auth_type PASS
     auth_pass 11111111
@@ -691,7 +691,7 @@ vrrp_instance VI_1 {
        valid_lft forever preferred_lft forever
     inet 10.20.66.1/32 scope global eth0
        valid_lft forever preferred_lft forever
-    inet6 fe80::5054:ff:fe1e:cc35/64 scope link 
+    inet6 fe80::5054:ff:fe1e:cc35/64 scope link
        valid_lft forever preferred_lft forever
 
 # 验证vip是否正常可以飘到slave,停掉master,查看slave
@@ -802,7 +802,7 @@ stdout_events_enable=false                                                     ;
   ],
   "key": {
     "algo": "rsa",
-    "size": 2048	
+    "size": 2048
   },
   "names": [{
         "C": "CN",
@@ -818,11 +818,22 @@ stdout_events_enable=false                                                     ;
 [~]# scp kubelet-key.pem root@ip:/opt/kubernetes/server/bin/certs
 
 # set cluster. 证书反解 `echo ${kubelet.kubeconfig.certificate-authority-data}|base64 -d`
-[~]# kubectl config set-cluster owo-cluster --certificate-authority=/opt/kubernetes/server/bin/certs/ca.pem --embed-certs=true --server=https://10.20.66.1:7443 --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+[~]# kubectl config set-cluster owo-cluster \
+  --certificate-authority=/opt/kubernetes/server/bin/certs/ca.pem \
+  --embed-certs=true \
+  --server=https://10.20.66.1:7443 \
+  --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
 # set-credentials
-[~]# kubectl config set-credentials owo-credentials --client-certificate=/opt/kubernetes/server/bin/certs/client.pem --client-key=/opt/kubernetes/server/bin/certs/client-key.pem --embed-certs=true --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+[~]# kubectl config set-credentials owo-credentials \
+  --client-certificate=/opt/kubernetes/server/bin/certs/client.pem \
+  --client-key=/opt/kubernetes/server/bin/certs/client-key.pem \
+  --embed-certs=true \
+  --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
 # set context
-[~]# kubectl config set-context owo-context --cluster=owo-cluster --user=owo-credentials --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+[~]# kubectl config set-context owo-context \
+  --cluster=owo-cluster \
+  --user=owo-credentials \
+  --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
 # use context
 [~]# kubectl config use-context owo-context --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
 # distribution kubelet.kubeconfig
@@ -906,4 +917,143 @@ stdout_logfile_backups=4                                                       ;
 stdout_capture_maxbytes=1MB                                                    ; number of bytes in 'capturemode' (default 0)
 stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
 
+[~]# kubectl get nodes
+NAME                  STATUS   ROLES    AGE    VERSION
+node66-105.host.com   Ready    <none>   123m   v1.16.15
+node66-106.host.com   Ready    <none>   123m   v1.16.15
+node66-107.host.com   Ready    <none>   123m   v1.16.15
+[~]# kubectl label node node66-105.host.com node-role.kubernetes.io/master=
+[~]# kubectl label node node66-105.host.com node-role.kubernetes.io/node=
+[~]# kubectl label node node66-106.host.com node-role.kubernetes.io/master=
+[~]# kubectl label node node66-106.host.com node-role.kubernetes.io/node=
+[~]# kubectl label node node66-107.host.com node-role.kubernetes.io/master=
+[~]# kubectl label node node66-107.host.com node-role.kubernetes.io/node=
+[~]# kubectl get nodes
+NAME                  STATUS   ROLES         AGE    VERSION
+node66-105.host.com   Ready    master,node   128m   v1.16.15
+node66-106.host.com   Ready    master,node   128m   v1.16.15
+node66-107.host.com   Ready    master,node   128m   v1.16.15
+```
+
+## kube-proxy
+```sh
+[~]# vi /opt/certs/kube-proxy-csr.json
+
+{
+  "CN": "system:kube-proxy",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [{
+    "C": "CN",
+    "ST": "beijing",
+    "L": "beijing",
+    "O": "ONLXJ",
+    "OU": "ONLXJTD"
+  }]
+}
+
+[~]# cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client kube-proxy-csr.json | cfssl-json -bare kube-proxy-client
+[~]# scp /opt/certs/kube-proxy-client.pem root@ip:/opt/kubernetes/server/bin/certs
+
+[~]# kubectl config set-cluster owo-cluster \
+  --certificate-authority=/opt/kubernetes/server/bin/certs/ca.pem \
+  --embed-certs=true \
+  --server=https://10.20.66.1:7443 \
+  --kubeconfig=/opt/kubernetes/server/bin/conf/kube-proxy.kubeconfig
+[~]# kubectl config set-credentials kube-proxy \
+  --client-certificate=/opt/kubernetes/server/bin/certs/kube-proxy-client.pem \
+  --client-key=/opt/kubernetes/server/bin/certs/kube-proxy-client-key.pem \
+  --embed-certs=true \
+  --kubeconfig=/opt/kubernetes/server/bin/conf/kube-proxy.kubeconfig
+[~]# kubectl config set-context owo-context \
+  --cluster=owo-cluster \
+  --user=kube-proxy \
+  --kubeconfig=/opt/kubernetes/server/bin/conf/kube-proxy.kubeconfig
+[~]# kubectl config use-context owo-context --kubeconfig=/opt/kubernetes/server/bin/conf/kube-proxy.kubeconfig
+[~]# scp /opt/kubernetes/server/bin/conf/kube-proxy.kubeconfig root@ip:/opt/kubernetes/server/bin/conf
+
+[~]# vi /root/ipvs.sh
+
+#!/bin/bash
+ipvs_mods_dir="/usr/lib/modules/$(uname -r)/kernel/net/netfilter/ipvs"
+for i in $(ls $ipvs_mods_dir|grep -o "^[^.]*")
+do
+  /sbin/modinfo -F filename $i &>/dev/null
+  if [ $? -eq 0 ];then
+    /sbin/modprobe $i
+  fi
+done
+
+[~]# chmod +x /root/ipvs.sh
+[~]# sh /root/ipvs.sh
+# https://www.cnblogs.com/feisky/archive/2012/09/05/2672496.html
+[~]# lsmod | grep ip_vs
+ip_vs_wrr              12697  0
+ip_vs_wlc              12519  0
+ip_vs_sh               12688  0
+ip_vs_sed              12519  0
+ip_vs_rr               12600  0
+ip_vs_pe_sip           12740  0
+nf_conntrack_sip       33860  1 ip_vs_pe_sip
+ip_vs_nq               12516  0
+ip_vs_lc               12516  0
+ip_vs_lblcr            12922  0
+ip_vs_lblc             12819  0
+ip_vs_ftp              13079  0
+ip_vs_dh               12688  0
+ip_vs                 141432  24 ip_vs_dh,ip_vs_lc,ip_vs_nq,ip_vs_rr,ip_vs_sh,ip_vs_ftp,ip_vs_sed,ip_vs_wlc,ip_vs_wrr,ip_vs_pe_sip,ip_vs_lblcr,ip_vs_lblc
+nf_nat                 26787  3 ip_vs_ftp,nf_nat_ipv4,nf_nat_masquerade_ipv4
+nf_conntrack          133053  8 ip_vs,nf_nat,nf_nat_ipv4,xt_conntrack,nf_nat_masquerade_ipv4,nf_conntrack_netlink,nf_conntrack_sip,nf_conntrack_ipv4
+libcrc32c              12644  3 ip_vs,nf_nat,nf_conntrack
+
+[~]# vi /opt/kubernetes/server/bin/kube-proxy.sh
+
+#!/bin/sh
+./kube-proxy \
+  --cluster-cidr 172.1.0.0/16 \
+  --hostname-override node66-105.host.com \
+  --proxy-mode=ipvs \
+  --ipvs-scheduler=nq \
+  --kubeconfig /opt/kubernetes/server/bin/conf/kube-proxy.kubeconfig
+
+[~]# chmod +x /opt/kubernetes/server/bin/kube-proxy.sh
+[~]# mkdir -p /export/kubernetes/kube-proxy/logs
+
+[~]# vi /etc/supervisord.d/kube-proxy.ini
+
+[program:kube-proxy-66-105]
+command=/opt/kubernetes/server/bin/kube-proxy.sh                               ; the program(relative uses PATH, can take args)
+numprocs=1                                                                     ; number of processes copies to start (def 1)
+directory=/opt/kubernetes/server/bin                                           ; directory to cwd to before exec (def no cwd)
+autostart=true                                                                 ; start at supervisord start (default: true)
+autorestar=true                                                                ; restart at unexpected quit (default: true)
+startsecs=30                                                                   ; number of secs prog must stay running (def. 1)
+startretries=3                                                                 ; max # of serial start failures (default 3)
+exitcodes=0,2                                                                  ; 'expected' exit codes for process (default 0,2)
+stopsignal=QUIT                                                                ; signal used to kill process (default TERM)
+stopwaitsecs=10                                                                ; max num secs to wait b4 SIGKILL (default 10)
+user=root                                                                      ; setuid to this UNIX account to run the program
+redirect_stderr=true                                                           ; redirect proc stderr to stdout (default false)
+stdout_logfile=/export/kubernetes/kube-proxy/logs/kube-proxy.stdout.log        ; stdout log path, NONE for none; default AUTO
+stdout_logfile_maxbytes=64MB                                                   ; max # logfile bytes b4 rotation (default 50MB)
+stdout_logfile_backups=4                                                       ; # of stdout logfile backups (default 10)
+stdout_capture_maxbytes=1MB                                                    ; number of bytes in 'capturemode' (default 0)
+stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
+
+[~]# supervisorctl update
+
+[~]# yum install -y ipvsadm
+[~]# ipvsadm -Ln
+IP Virtual Server version 1.2.1 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  192.168.0.1:443 nq
+  -> 10.20.66.105:6443            Masq    1      0          0         
+  -> 10.20.66.106:6443            Masq    1      0          0         
+  -> 10.20.66.107:6443            Masq    1      0          0         
+[~]# kubectl get svc
+NAME         TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   192.168.0.1   <none>        443/TCP   3d19h
 ```
