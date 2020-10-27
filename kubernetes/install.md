@@ -431,6 +431,7 @@ c21bf6bec3e41b76: name=etcd-server-66-107 peerURLs=https://10.20.66.107:2380 cli
     "CN": "kubernetes-apiserver",
     "hosts": [
         "127.0.0.1",
+        "10.20.66.1",
         "kubernetes.default",
         "kubernetes.default.svc",
         "kubernetes.default.svc.cluster",
@@ -816,6 +817,17 @@ stdout_events_enable=false                                                     ;
 [~]# scp kubelet.pem root@ip:/opt/kubernetes/server/bin/certs
 [~]# scp kubelet-key.pem root@ip:/opt/kubernetes/server/bin/certs
 
+# set cluster. 证书反解 `echo ${kubelet.kubeconfig.certificate-authority-data}|base64 -d`
+[~]# kubectl config set-cluster owo-cluster --certificate-authority=/opt/kubernetes/server/bin/certs/ca.pem --embed-certs=true --server=https://10.20.66.1:7443 --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+# set-credentials
+[~]# kubectl config set-credentials owo-credentials --client-certificate=/opt/kubernetes/server/bin/certs/client.pem --client-key=/opt/kubernetes/server/bin/certs/client-key.pem --embed-certs=true --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+# set context
+[~]# kubectl config set-context owo-context --cluster=owo-cluster --user=owo-credentials --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+# use context
+[~]# kubectl config use-context owo-context --kubeconfig=/opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+# distribution kubelet.kubeconfig
+[~]# scp /opt/kubernetes/server/bin/conf/kubelet.kubeconfig root@ip:/opt/kubernetes/server/bin/conf
+
 [~]# vi /opt/kubernetes/server/bin/conf/kubernetes-node.yaml
 
 apiVersion: rbac.authorization.k8s.io/v1
@@ -831,43 +843,42 @@ subjects:
   kind: User
   name: kubernetes-node
 
-[~]# cd /opt/kubernetes/server/bin/conf
-
-# set cluster. 证书反解 `echo ${kubelet.kubeconfig.certificate-authority-data}|base64 -d`
-[~]# kubectl config set-cluster owo-cluster --certificate-authority=/opt/kubernetes/server/bin/certs/ca.pem --embed-certs=true --server=https://10.20.66.1:7443 --kubeconfig=kubelet.kubeconfig
-# set-credentials
-[~]# kubectl config set-credentials owo-credentials --client-certificate=/opt/kubernetes/server/bin/certs/client.pem --client-key=/opt/kubernetes/server/bin/certs/client-key.pem --embed-certs=true --kubeconfig=kubelet.kubeconfig
-# set context
-[~]# kubectl config set-context owo-context --cluster=owo-cluster --user=owo-credentials --kubeconfig=kubelet.kubeconfig
-# use context
-[~]# kubectl config use-context owo-context --kubeconfig=kubelet.kubeconfig
-
 [~]# kubectl create -f /opt/kubernetes/server/bin/conf/kubernetes-node.yaml
-
-[~]# scp /opt/kubernetes/server/bin/conf/kubelet.kubeconfig root@ip:/opt/kubernetes/server/bin/conf
 
 [~]# docker pull kubernetes/pause
 [~]# docker tag kubernetes/pause:latest harobr.op.com/public/pause:latest
 [~]# docker push harbor.op.com/public/pause:latest
 
+[~]# vi /opt/kubernetes/server/bin/conf/kubelet.yaml
+
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    enabled: true
+  x509:
+    clientCAFile: /opt/kubernetes/server/bin/certs/ca.pem
+cgroupDriver: systemd
+clusterDNS:
+- 192.168.0.2
+clusterDomain: cluster.local
+kubeletCgroups: /systemd/system.slice
+failSwapOn: false
+tlsCertFile: /opt/kubernetes/server/bin/certs/kubelet.pem
+tlsPrivateKeyFile: /opt/kubernetes/server/bin/certs/kubelet-key.pem
+imageGCHighThresholdPercent: 20
+imageGCLowThresholdPercent: 10
+
 [~]# vi /opt/kubernetes/server/bin/kube-kubelet.sh
 
 #!/bin/sh
 ./kubelet \
-  --anonymous-auth=false \
-  --cgroup-driver systemd \
-  --cluster-dns 192.168.0.2 \
-  --cluster-domain cluster.local \
-  --runtime-cgroup=/systemd/system.slice \
-  --kubelet-cgroup=/systemd/system.slice \
-  --fail-swap-on="false" \
-  --client-ca-file ./certs/ca.pem \
-  --tls-cert-file ./certs/kubelet.pem \
-  --tls-private-key-file ./certs/kubelet-key.pem \
+  --config /opt/kubernetes/server/bin/conf/kubelet.yaml \
+  --runtime-cgroups=/systemd/system.slice \
   --hostname-override node66-105.host.com \
-  --image-gc-high-threshold 20 \
-  --image-gc-low-threshold 10 \
-  --kubeconfig ./conf/kubelet.kubeconfig \
+  --kubeconfig /opt/kubernetes/server/bin/conf/kubelet.kubeconfig \
   --log-dir /export/kubernetes/kube-kubelet/logs \
   --pod-infra-container-image harbor.op.com/public/pause:latest \
   --root-dir /export/kubernetes/kube-kubelet
