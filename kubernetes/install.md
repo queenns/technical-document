@@ -432,6 +432,7 @@ c21bf6bec3e41b76: name=etcd-server-66-107 peerURLs=https://10.20.66.107:2380 cli
     "hosts": [
         "127.0.0.1",
         "10.20.66.1",
+        "192.168.0.1",
         "kubernetes.default",
         "kubernetes.default.svc",
         "kubernetes.default.svc.cluster",
@@ -1213,6 +1214,7 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
 ## coredns
 ```sh
+[~]# mkdir -p /export/kubernetes-yaml/coredns
 [~]# vi /etc/nginx/conf.d/kubernetes-yaml.op.com.conf
 
 server {
@@ -1224,4 +1226,220 @@ server {
     root /export/kubernetes-yaml;
   }
 }
+[~]# nginx -t
+[~]# nginx -s reload
+
+[~]# vi /var/named/op.com.zone
+kubernetes-yaml   A    10.20.66.103
+[~]# systemctl restart named
+[~]# dig -t A harbor.op.com @10.20.66.103 +short
+
+[~]# vi /export/kubernetes-yaml/coredns/rbac.yaml
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+      kubernetes.io/cluster-service: "true"
+      addonmanager.kubernetes.io/mode: Reconcile
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+    addonmanager.kubernetes.io/mode: Reconcile
+  name: system:coredns
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  - services
+  - pods
+  - namespaces
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+    addonmanager.kubernetes.io/mode: EnsureExists
+  name: system:coredns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:coredns
+subjects:
+- kind: ServiceAccount
+  name: coredns
+  namespace: kube-system
+---
+
+[~]# vi /export/kubernetes-yaml/coredns/configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+      addonmanager.kubernetes.io/mode: EnsureExists
+data:
+  Corefile: |
+    .:53 {
+        errors
+        log
+        health {
+            lameduck 5s
+        }
+        ready
+        kubernetes cluster.local 192.168.0.0/16
+        forward . 10.20.66.103
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+
+[~]# vi /export/kubernetes-yaml/coredns/deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+    kubernetes.io/name: "CoreDNS"
+spec:
+  # replicas: not specified here:
+  # 1. In order to make Addon Manager do not reconcile this replicas parameter.
+  # 2. Default is 1.
+  # 3. Will be tuned in real time if DNS horizontal auto-scaling is turned on.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+  template:
+    metadata:
+      labels:
+        k8s-app: kube-dns
+      annotations:
+        seccomp.security.alpha.kubernetes.io/pod: 'docker/default'
+    spec:
+      priorityClassName: system-cluster-critical
+      serviceAccountName: coredns
+      tolerations:
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+      nodeSelector:
+        beta.kubernetes.io/os: linux
+      containers:
+      - name: coredns
+        image: harbor.op.com/public/coredns:v1.6.2
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 70Mi
+        args: [ "-conf", "/etc/coredns/Corefile" ]
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/coredns
+          readOnly: true
+        ports:
+        - containerPort: 53
+          name: dns
+          protocol: UDP
+        - containerPort: 53
+          name: dns-tcp
+          protocol: TCP
+        - containerPort: 9153
+          name: metrics
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8181
+            scheme: HTTP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - NET_BIND_SERVICE
+            drop:
+            - all
+          readOnlyRootFilesystem: true
+      dnsPolicy: Default
+      volumes:
+        - name: config-volume
+          configMap:
+            name: coredns
+            items:
+            - key: Corefile
+              path: Corefile
+
+[~]# vi /export/kubernetes-yaml/coredns/service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-dns
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+    kubernetes.io/name: "CoreDNS"
+spec:
+  selector:
+    k8s-app: kube-dns
+  clusterIP: 192.168.0.2
+  ports:
+  - name: dns
+    port: 53
+    protocol: UDP
+  - name: dns-tcp
+    port: 53
+    protocol: TCP
+  - name: metrics
+    port: 9153
+    protocol: TCP
+
+[~]# kubectl apply -f http://kubernetes-yaml.op.com/coredns/rbac.yaml
+[~]# kubectl apply -f http://kubernetes-yaml.op.com/coredns/configmap.yaml
+[~]# kubectl apply -f http://kubernetes-yaml.op.com/coredns/deployment.yaml
+[~]# kubectl apply -f http://kubernetes-yaml.op.com/coredns/service.yaml
+
+
 ```
