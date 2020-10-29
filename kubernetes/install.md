@@ -839,6 +839,9 @@ stdout_events_enable=false                                                     ;
 # distribution kubelet.kubeconfig
 [~]# scp /opt/kubernetes/server/bin/conf/kubelet.kubeconfig root@ip:/opt/kubernetes/server/bin/conf
 
+# 注意: anonymous配置项控制是否支持匿名用户访问,匿名用户需要system:xxx格式命名,kubernetes-node用户不符合该格式,之后操作会有rbac的授权问题
+# 问题: error: unable to upgrade connection: Forbidden (user=kubernetes-node, verb=create, resource=nodes, subresource=proxy)
+# 解决: kubectl create clusterrolebinding kubernetes-node-crb --clusterrole cluster-admin --user kubernetes-node, 自定义一个clusterrole(这里直接选用了系统自带的cluster-admin权限)授权给kubernetes-node用户
 [~]# vi /opt/kubernetes/server/bin/conf/kubernetes-node.yaml
 
 apiVersion: rbac.authorization.k8s.io/v1
@@ -933,6 +936,7 @@ NAME                  STATUS   ROLES         AGE    VERSION
 node66-105.host.com   Ready    master,node   128m   v1.16.15
 node66-106.host.com   Ready    master,node   128m   v1.16.15
 node66-107.host.com   Ready    master,node   128m   v1.16.15
+
 ```
 
 ## kube-proxy
@@ -1094,7 +1098,23 @@ nginx-ds-jzbll   1/1     Running   0          4m50s   172.1.105.2   node66-105.h
 ```
 
 ## Flannel
+
 ```sh
+# 同类CNI(Continer Network Interface)网络插件
+# Flannel/Calico/Canal/Contiv/OpenContrail/NSX-T/Kube-router
+
+# 自己坑自己,记录安装中问题
+# 1.shell脚本粗心个别忘写换行符(\),导致启动时之后的参数都没有加载到
+# 2.flannel自动注册subnet,与预期设置的172.1.x.0/24不符,route -n可查看到
+# 3.flannel自动生成了/run/flannel/subnet.env文件,etcd和静态路由表也均注册了自动的子网
+# 4.无论如何重启都会按照注册历史加载,导致想要注册的子网一直不生效
+# * 修正shell
+# * rm -f /run/flannel/subnet.env
+# * /opt/etcd/etcdctl rm -r /coreos.com
+# * route del -net 子网ip netmask 255.255.255.0
+# * 确认自定义/opt/flannel/subnet.env的子网配置,在后续的重启过程中flannel会自动覆盖旧的历史子网(坑死)
+# * 清空历史注册记录后,确认注册文件无误,再次重启和预期注册的子网一样了
+
 [~]# wget https://github.com/coreos/flannel/releases/download/v0.13.0/flannel-v0.13.0-linux-amd64.tar.gz
 [~]# mkdir /opt/flannel-v0.13.0
 [~]# tar -xvf flannel-v0.13.0-linux-amd64.tar.gz -C /opt/flannel-v0.13.0
@@ -1128,7 +1148,13 @@ FLANNEL_IPMASQ=false
 [~]# chmod +x /opt/flannel/flanneld.sh
 [~]# mkdir -p /export/flannel/logs
 
+# host-gw 该模式所有宿主机处于同一个二层网络下,也就是所每个宿主机指向的是同一个网关设备,原理:添加静态路由即可
 [~]# /opt/etcd/etcdctl set /coreos.com/network/config '{"Network" : "172.1.0.0/16", "Backend": {"Type": "host-gw"}}'
+# VxLAN   该模式宿主机处于不同的俩个二层网络,不同网关设备,原理:每台不同的宿主机实例化虚拟网络设备,然后通过flannel的网络隧道通信. ip>flannel->flannel网络隧道->flannel->ip
+[~]# /opt/etcd/etcdctl set /coreos.com/network/config '{"Network" : "172.1.0.0/16", "Backend": {"Type": "VxLAN"}}'
+# 直接路由 该模式是host-gw和VxLAN和混合模式,flannel引擎自动判定宿主机是否处于同一个二层网络,如果是使用host-gw,否则使用VxLAN
+[~]# /opt/etcd/etcdctl set /coreos.com/network/config '{"Network" : "172.1.0.0/16", "Backend": {"Type": "VxLAN", "Directrouting": "true"}}'
+
 [~]# /opt/etcd/etcdctl get /coreos.com/network/config
 
 [~]# vi /etc/supervisord.d/flanneld.ini
@@ -1153,10 +1179,34 @@ stdout_capture_maxbytes=1MB                                                    ;
 stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
 
 [~]# supervisorctl update
-# 
+
+# 静态路由
+# route add -net 172.1.x.0/24 gw 10.20.66.x dev eth0
+# 172.1.106.0/24网络通信,经过网关10.20.66.106
+# 172.1.107.0/24网络通信,经过网关10.20.66.107
 [~]# route -n
 Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 172.1.105.0     0.0.0.0         255.255.255.0   U     0      0        0 docker0
 172.1.106.0     10.20.66.106    255.255.255.0   UG    0      0        0 eth0
 172.1.107.0     10.20.66.107    255.255.255.0   UG    0      0        0 eth0
+
+# SNAT规则优化
+# container中出网将ip伪装成宿主机ip,跨宿主机container通信ip需要修改为容器ip,使用nginx-alpine curl 各个container ip,观察被请求端日志是否将10.20.66.x变更为172.1.x.x
+# 以下SNAT记录转换解释: -s 172.1.105.0/24(来源地址172.1.105.0/24) ! -o docker0(不是从docker0网络设备出网的) -j MASQUERADE(做源地址NAT转换,伪装成宿主机ip出网)
+[~]# iptables-save|grep -i postrouting
+-A POSTROUTING -s 172.1.105.0/24 ! -o docker0 -j MASQUERADE
+[~]# yum install -y iptables-services
+[~]# systemctl start iptables
+[~]# systemctl enable iptables
+
+[~]# iptables -t nat -D POSTROUTING -s 172.1.105.0/24 ! -o docker0 -j MASQUERADE
+[~]# iptables -t nat -I POSTROUTING -s 172.1.105.0/24 ! -d 172.1.0.0/16 ! -o docker0 -j MASQUERADE
+[~]# iptables-save > /etc/sysconfig/iptables
+
+[~]# iptables-save|grep -i reject
+-A INPUT -j REJECT --reject-with icmp-host-prohibited
+-A FORWARD -j REJECT --reject-with icmp-host-prohibited
+[~]# iptables -t filter -D INPUT -j REJECT --reject-with icmp-host-prohibited
+[~]# iptables -t filter -D FORWARD -j REJECT --reject-with icmp-host-prohibited
+[~]# iptables-save > /etc/sysconfig/iptables
 ```
