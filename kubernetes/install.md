@@ -1210,3 +1210,18 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 [~]# iptables -t filter -D FORWARD -j REJECT --reject-with icmp-host-prohibited
 [~]# iptables-save > /etc/sysconfig/iptables
 ```
+
+## coredns
+```sh
+[~]# vi /etc/nginx/conf.d/kubernetes-yaml.op.com.conf
+
+server {
+  listen   80;
+  server_name   kubernetes-yaml.op.com;
+  location / {
+    autoindex on;
+    default_type text/plain;
+    root /export/kubernetes-yaml;
+  }
+}
+```
