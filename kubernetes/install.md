@@ -1057,3 +1057,106 @@ TCP  192.168.0.1:443 nq
 NAME         TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)   AGE
 kubernetes   ClusterIP   192.168.0.1   <none>        443/TCP   3d19h
 ```
+
+## 验证集群
+```sh
+[~]# vi /root/nginx-ds.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nginx-ds
+spec:
+  selector:
+    matchLabels:
+      app: nginx-ds
+  template:
+    metadata:
+      labels:
+        app: nginx-ds
+    spec:
+      containers:
+      - name: owo-nginx
+        image: harbor.op.com/public/nginx:v1.7.9
+        ports:
+        - containerPort: 80
+
+[~]# kubectl create -f nginx-ds.yaml
+[~]# kubectl get pods -o wide
+NAME             READY   STATUS    RESTARTS   AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+nginx-ds-c44qq   1/1     Running   0          4m50s   172.1.107.2   node66-107.host.com   <none>           <none>
+nginx-ds-fp4g2   1/1     Running   0          4m50s   172.1.106.2   node66-106.host.com   <none>           <none>
+nginx-ds-jzbll   1/1     Running   0          4m50s   172.1.105.2   node66-105.host.com   <none>           <none>
+
+# 反解证书
+[~]# cfssl-certinfo -cert apiserver.pem
+# 对比文件是否一样小技巧
+[~]# md5sum /opt/kubernetes/server/bin/conf/kubelet.kubeconfig
+```
+
+## Flannel
+```sh
+[~]# wget https://github.com/coreos/flannel/releases/download/v0.13.0/flannel-v0.13.0-linux-amd64.tar.gz
+[~]# mkdir /opt/flannel-v0.13.0
+[~]# tar -xvf flannel-v0.13.0-linux-amd64.tar.gz -C /opt/flannel-v0.13.0
+[~]# ln -s /opt/flannel-v0.13.0 /opt/flannel
+
+[~]# mkdir /opt/flannel/certs
+[~]# scp /opt/certs/ca.pem root@ip:/opt/flannel/certs
+[~]# scp /opt/certs/client.pem root@ip:/opt/flannel/certs
+[~]# scp /opt/certs/client-key.pem root@ip:/opt/flannel/certs
+
+[~]# vi /opt/flannel/subnet.env
+
+FLANNEL_NETWORK=172.1.0.0/16
+FLANNEL_SUBNET=172.1.105.1/24
+FLANNEL_MTU=1500
+FLANNEL_IPMASQ=false
+
+[~]# vi /opt/flannel/flanneld.sh
+
+#!/bin/sh
+./flanneld \
+  --public-ip=10.20.66.105 \
+  --etcd-endpoints=https://10.20.66.105:2379,https://10.20.66.106:2379,https://10.20.66.107:2379 \
+  --etcd-keyfile=/opt/flannel/certs/client-key.pem \
+  --etcd-certfile=/opt/flannel/certs/client.pem \
+  --etcd-cafile=/opt/flannel/certs/ca.pem \
+  --iface=eth0 \
+  --subnet-file=/opt/flannel/subnet.env \
+  --healthz-port=2401
+
+[~]# chmod +x /opt/flannel/flanneld.sh
+[~]# mkdir -p /export/flannel/logs
+
+[~]# /opt/etcd/etcdctl set /coreos.com/network/config '{"Network" : "172.1.0.0/16", "Backend": {"Type": "host-gw"}}'
+[~]# /opt/etcd/etcdctl get /coreos.com/network/config
+
+[~]# vi /etc/supervisord.d/flanneld.ini
+
+[program:flanneld-66-105]
+command=/opt/flannel/flanneld.sh                                               ; the program(relative uses PATH, can take args)
+numprocs=1                                                                     ; number of processes copies to start (def 1)
+directory=/opt/flannel                                                         ; directory to cwd to before exec (def no cwd)
+autostart=true                                                                 ; start at supervisord start (default: true)
+autorestar=true                                                                ; restart at unexpected quit (default: true)
+startsecs=30                                                                   ; number of secs prog must stay running (def. 1)
+startretries=3                                                                 ; max # of serial start failures (default 3)
+exitcodes=0,2                                                                  ; 'expected' exit codes for process (default 0,2)
+stopsignal=QUIT                                                                ; signal used to kill process (default TERM)
+stopwaitsecs=10                                                                ; max num secs to wait b4 SIGKILL (default 10)
+user=root                                                                      ; setuid to this UNIX account to run the program
+redirect_stderr=true                                                           ; redirect proc stderr to stdout (default false)
+stdout_logfile=/export/flannel/logs/flannel.stdout.log                         ; stdout log path, NONE for none; default AUTO
+stdout_logfile_maxbytes=64MB                                                   ; max # logfile bytes b4 rotation (default 50MB)
+stdout_logfile_backups=4                                                       ; # of stdout logfile backups (default 10)
+stdout_capture_maxbytes=1MB                                                    ; number of bytes in 'capturemode' (default 0)
+stdout_events_enable=false                                                     ; emit events on stdout writes (default false)
+
+[~]# supervisorctl update
+# 
+[~]# route -n
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+172.1.105.0     0.0.0.0         255.255.255.0   U     0      0        0 docker0
+172.1.106.0     10.20.66.106    255.255.255.0   UG    0      0        0 eth0
+172.1.107.0     10.20.66.107    255.255.255.0   UG    0      0        0 eth0
+```
