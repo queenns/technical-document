@@ -1441,5 +1441,21 @@ spec:
 [~]# kubectl apply -f http://kubernetes-yaml.op.com/coredns/deployment.yaml
 [~]# kubectl apply -f http://kubernetes-yaml.op.com/coredns/service.yaml
 
+[~]# dig -t A node66-107.host.com @192.168.0.2 +short
+10.20.66.107
+
+[~]# kubectl create deployment nginx-dp --image=harbor.op.com/public/nginx:alpine -n kube-public
+[~]# kubectl expose deployment nginx-dp --port=80 -n kube-public
+[~]# kubectl get svc -n kube-public
+NAME       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+nginx-dp   ClusterIP   192.168.12.22   <none>        80/TCP    7s
+[~]# dig -t A nginx-dp.kube-public.svc.cluster.local @192.168.0.2 +short
+192.168.12.22
+
+[~]# kubectl get pods -o wide -n kube-public
+NAME                        READY   STATUS    RESTARTS   AGE    IP            NODE                  NOMINATED NODE   READINESS GATES
+nginx-dp-7d6f4b8d5d-gszbq   1/1     Running   0          9m6s   172.1.106.3    node66-106.host.com   <none>           <none>
+[~]# exec -it nginx-dp-7d6f4b8d5d-gszbq /bin/sh -n kube-public
+[~]#  
 
 ```
