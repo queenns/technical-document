@@ -15,3 +15,4 @@
 * [Jenkins](jenkins/README.md)
 * [Docker](docker/install.md)
 * [Kubernetes](kubernetes/README.md)
+* [Structure](structure/README.md)
