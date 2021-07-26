@@ -4,3 +4,4 @@
 * [队列](queue.md)
 * [堆](heap.md)
 * [链表](linked.md)
+* [树](tree.md)
