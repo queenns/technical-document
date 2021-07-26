@@ -14,7 +14,6 @@
 public class MaxHeap {
     private int[] elements;
     public int size = 0;
-
     void sink(int index) {
         int j;
         int t = elements[index];
@@ -31,11 +30,9 @@ public class MaxHeap {
         }
         elements[index] = t;
     }
-
     void swim(int index) {
         int parent;
         int t = elements[index];
-
         while (index > 0) {
             parent = (index - 1) >> 1;
             if (elements[parent] < t) {
@@ -47,49 +44,40 @@ public class MaxHeap {
         }
         elements[index] = t;
     }
-
     void push(int val) {
         elements[size++] = val;
         swim(size - 1);
     }
-
     int pop() {
         int t = elements[0];
         elements[0] = elements[--size];
         sink(0);
         return t;
     }
-
     public int[] getLeastNumbers(int[] array, int k) {
         if (k <= 0 || array == null || array.length == 0) {
             return new int[0];
         }
-
         elements = new int[k + 1];
-
         for (int element : array) {
             push(element);
             if (size > k) {
                 pop();
             }
         }
-
         int[] results = new int[k];
         int index = 0;
         while (size > 0) {
             results[index++] = pop();
         }
-
         return results;
     }
-
     public static void main(String[] args) {
         int[] A = new int[]{9, 2, 4, 10, 3, 2, 1};
         MaxHeap maxHeap = new MaxHeap();
         int[] leastNumbers = maxHeap.getLeastNumbers(A, 4);
         System.out.println(Arrays.toString(leastNumbers));
     }
-
 }
 ```
 ## 小堆,根为最小值
